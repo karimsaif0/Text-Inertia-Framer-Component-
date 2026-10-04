@@ -72,6 +72,7 @@ export default function KarimSaifTextInertia(props: Props) {
     const rootRef = useRef<HTMLDivElement>(null)
     const wordsRef = useRef<WordState[]>([])
     const frameRef = useRef<number | null>(null)
+    const visibleRef = useRef(false)
 
     const pointerRef = useRef<PointerState>({
         x: 0,
@@ -134,6 +135,8 @@ export default function KarimSaifTextInertia(props: Props) {
             targetAngle: 0,
         }))
 
+        visibleRef.current = false
+
         if (
             staticRenderer ||
             reducedMotion ||
@@ -151,89 +154,19 @@ export default function KarimSaifTextInertia(props: Props) {
         pointer.vy = 0
         pointer.active = false
 
-        const handlePointerMove = (event: PointerEvent) => {
-            const nextX = event.clientX
-            const nextY = event.clientY
+        const stopAnimation = () => {
+            if (frameRef.current !== null) {
+                cancelAnimationFrame(frameRef.current)
+                frameRef.current = null
+            }
+        }
 
-            if (!pointer.active) {
-                pointer.x = nextX
-                pointer.y = nextY
-                pointer.vx = 0
-                pointer.vy = 0
-                pointer.active = true
+        const animate = () => {
+            if (!visibleRef.current) {
+                frameRef.current = null
                 return
             }
 
-            const dx = nextX - pointer.x
-            const dy = nextY - pointer.y
-
-            pointer.x = nextX
-            pointer.y = nextY
-            pointer.vx = Math.max(-80, Math.min(80, dx))
-            pointer.vy = Math.max(-80, Math.min(80, dy))
-        }
-
-        const handlePointerLeave = () => {
-            pointer.vx = 0
-            pointer.vy = 0
-            pointer.active = false
-        }
-
-        const enterHandlers = new Map<
-            HTMLSpanElement,
-            (event: PointerEvent) => void
-        >()
-
-        const leaveHandlers = new Map<
-            HTMLSpanElement,
-            (event: PointerEvent) => void
-        >()
-
-        elements.forEach((element, index) => {
-            const handleEnter = () => {
-                const word = wordsRef.current[index]
-                if (!word) return
-
-                const pushX = pointer.vx * velocity * strength
-                const pushY = pointer.vy * velocity * strength
-                const pushAngle =
-                    pointer.vx * 0.2 * rotation +
-                    pointer.vy * 0.05 * rotation
-
-                word.vx += pushX
-                word.vy += pushY
-                word.va += pushAngle
-
-                word.targetX = Math.max(-160, Math.min(160, pushX))
-                word.targetY = Math.max(-160, Math.min(160, pushY))
-                word.targetAngle = Math.max(-45, Math.min(45, pushAngle))
-            }
-
-            const handleLeave = () => {
-                const word = wordsRef.current[index]
-                if (!word) return
-
-                word.targetX = 0
-                word.targetY = 0
-                word.targetAngle = 0
-            }
-
-            enterHandlers.set(element, handleEnter)
-            leaveHandlers.set(element, handleLeave)
-
-            element.addEventListener("pointerenter", handleEnter)
-            element.addEventListener("pointerleave", handleLeave)
-        })
-
-        root.addEventListener("pointermove", handlePointerMove, {
-            passive: true,
-        })
-
-        root.addEventListener("pointerleave", handlePointerLeave, {
-            passive: true,
-        })
-
-        const animate = () => {
             const wordsState = wordsRef.current
 
             for (let index = 0; index < wordsState.length; index++) {
@@ -266,9 +199,128 @@ export default function KarimSaifTextInertia(props: Props) {
             frameRef.current = requestAnimationFrame(animate)
         }
 
-        frameRef.current = requestAnimationFrame(animate)
+        const startAnimation = () => {
+            if (!visibleRef.current || frameRef.current !== null) {
+                return
+            }
+
+            frameRef.current = requestAnimationFrame(animate)
+        }
+
+        const handlePointerMove = (event: PointerEvent) => {
+            const nextX = event.clientX
+            const nextY = event.clientY
+
+            if (!pointer.active) {
+                pointer.x = nextX
+                pointer.y = nextY
+                pointer.vx = 0
+                pointer.vy = 0
+                pointer.active = true
+                return
+            }
+
+            const dx = nextX - pointer.x
+            const dy = nextY - pointer.y
+
+            pointer.x = nextX
+            pointer.y = nextY
+
+            pointer.vx = Math.max(-80, Math.min(80, dx))
+            pointer.vy = Math.max(-80, Math.min(80, dy))
+        }
+
+        const handlePointerLeave = () => {
+            pointer.vx = 0
+            pointer.vy = 0
+            pointer.active = false
+        }
+
+        const enterHandlers = new Map<HTMLSpanElement, () => void>()
+        const leaveHandlers = new Map<HTMLSpanElement, () => void>()
+
+        elements.forEach((element, index) => {
+            const handleEnter = () => {
+                if (!visibleRef.current) return
+
+                const word = wordsRef.current[index]
+                if (!word) return
+
+                const pushX = pointer.vx * velocity * strength
+                const pushY = pointer.vy * velocity * strength
+                const pushAngle =
+                    pointer.vx * 0.2 * rotation +
+                    pointer.vy * 0.05 * rotation
+
+                word.vx += pushX
+                word.vy += pushY
+                word.va += pushAngle
+
+                word.targetX = Math.max(-160, Math.min(160, pushX))
+                word.targetY = Math.max(-160, Math.min(160, pushY))
+                word.targetAngle = Math.max(-45, Math.min(45, pushAngle))
+
+                startAnimation()
+            }
+
+            const handleLeave = () => {
+                const word = wordsRef.current[index]
+                if (!word) return
+
+                word.targetX = 0
+                word.targetY = 0
+                word.targetAngle = 0
+
+                if (visibleRef.current) {
+                    startAnimation()
+                }
+            }
+
+            enterHandlers.set(element, handleEnter)
+            leaveHandlers.set(element, handleLeave)
+
+            element.addEventListener("pointerenter", handleEnter)
+            element.addEventListener("pointerleave", handleLeave)
+        })
+
+        root.addEventListener("pointermove", handlePointerMove, {
+            passive: true,
+        })
+
+        root.addEventListener("pointerleave", handlePointerLeave, {
+            passive: true,
+        })
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                const entry = entries[0]
+                if (!entry) return
+
+                const isVisible =
+                    entry.isIntersecting && entry.intersectionRatio > 0
+
+                visibleRef.current = isVisible
+
+                if (isVisible) {
+                    startAnimation()
+                } else {
+                    stopAnimation()
+                    pointer.vx = 0
+                    pointer.vy = 0
+                    pointer.active = false
+                }
+            },
+            {
+                threshold: 0,
+            }
+        )
+
+        observer.observe(root)
 
         return () => {
+            observer.disconnect()
+            stopAnimation()
+
             root.removeEventListener("pointermove", handlePointerMove)
             root.removeEventListener("pointerleave", handlePointerLeave)
 
@@ -288,14 +340,10 @@ export default function KarimSaifTextInertia(props: Props) {
                     "translate3d(0px, 0px, 0px) rotate(0deg)"
             })
 
-            if (frameRef.current !== null) {
-                cancelAnimationFrame(frameRef.current)
-                frameRef.current = null
-            }
-
             pointer.vx = 0
             pointer.vy = 0
             pointer.active = false
+            visibleRef.current = false
             wordsRef.current = []
         }
     }, [
